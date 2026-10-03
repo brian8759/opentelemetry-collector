@@ -1,0 +1,6 @@
+change_type: bug_fix
+component: pkg/confighttp
+note: Log TLS handshake EOF errors at debug level while retaining error-level logging for other HTTP server errors.
+issues: [16085]
+subtext:
+change_logs: [user]

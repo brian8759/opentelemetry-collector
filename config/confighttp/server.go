@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"slices"
@@ -18,7 +19,6 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 	"golang.org/x/net/http2"
 
 	"go.opentelemetry.io/collector/component"
@@ -35,6 +35,20 @@ import (
 )
 
 const defaultMaxRequestBodySize = 20 * 1024 * 1024 // 20MiB
+
+type serverErrorLogWriter struct {
+	logger *zap.Logger
+}
+
+func (w serverErrorLogWriter) Write(p []byte) (int, error) {
+	message := strings.TrimSuffix(string(p), "\n")
+	if strings.HasPrefix(message, "http: TLS handshake error from ") && strings.HasSuffix(message, ": EOF") {
+		w.logger.Debug(message)
+	} else {
+		w.logger.Error(message)
+	}
+	return len(p), nil
+}
 
 // ServerConfig defines settings for creating an HTTP server.
 type ServerConfig struct {
@@ -503,10 +517,7 @@ func (sc *ServerConfig) ToServer(ctx context.Context, extensions map[component.I
 		includeMetadata: sc.IncludeMetadata,
 	}
 
-	errorLog, err := zap.NewStdLogAt(settings.Logger, zapcore.ErrorLevel)
-	if err != nil {
-		return nil, err // If an error occurs while creating the logger, return nil and the error
-	}
+	errorLog := log.New(serverErrorLogWriter{logger: settings.Logger}, "", 0)
 
 	keepAlivesEnabled := true
 	var idleTimeout time.Duration
@@ -533,7 +544,7 @@ func (sc *ServerConfig) ToServer(ctx context.Context, extensions map[component.I
 
 	server.SetKeepAlivesEnabled(keepAlivesEnabled)
 
-	return server, err
+	return server, nil
 }
 
 func responseHeadersHandler(handler http.Handler, headers configopaque.MapList) http.Handler {
